@@ -1,0 +1,8 @@
+# invariant dogfoods itself: this file is what CI runs against this repo on
+# every commit (see .github/workflows/ci.yml, job `dogfood`). A tool built to
+# verify claims can't ship an unverified claim about its own repo.
+invariants:
+  - name: this_repo_has_no_new_security_findings
+    check: security_scan
+    args:
+      repo: .
