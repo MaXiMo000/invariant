@@ -11,10 +11,12 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
+from invariant.checks import security_scan
 from invariant.model import FAIL, PASS, UNVERIFIED
 
 
@@ -107,6 +109,39 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(len(manifest["checks"]), 1)
         self.assertEqual(manifest["checks"][0]["status"], PASS)
         self.assertTrue((out_dir / "no_negative_payments.json").exists())
+
+
+class TestSecurityScan(unittest.TestCase):
+    """No real carabiner here -- what matters is the command it would run.
+
+    Without --info, carabiner hides informational findings from `new` by
+    default, so a repo with only informational findings reads as a clean
+    PASS. Without --fail-on, carabiner gates on its own per-engine
+    thresholds regardless of what `new` contains. Both have to be passed
+    through, or that gap stays open.
+    """
+
+    def _run_with_fake_carabiner(self, args, stdout='{"new": [], "accepted": 0}'):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return mock.Mock(returncode=0, stdout=stdout, stderr="")
+
+        with mock.patch("shutil.which", return_value="/usr/bin/carabiner"), \
+             mock.patch("subprocess.run", side_effect=fake_run):
+            security_scan.run(args)
+        return captured["cmd"]
+
+    def test_info_and_fail_on_passed_through_when_set(self):
+        cmd = self._run_with_fake_carabiner({"repo": ".", "info": True, "fail_on": "info"})
+        self.assertIn("--info", cmd)
+        self.assertEqual(cmd[cmd.index("--fail-on") + 1], "info")
+
+    def test_info_and_fail_on_omitted_by_default(self):
+        cmd = self._run_with_fake_carabiner({"repo": "."})
+        self.assertNotIn("--info", cmd)
+        self.assertNotIn("--fail-on", cmd)
 
 
 if __name__ == "__main__":

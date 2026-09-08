@@ -6,6 +6,15 @@ evidence. Does not reimplement any of carabiner's engines or baseline logic.
 Args:
     repo: path to the repository to scan (default ".")
     all: run every engine, not just the fast pre-commit path (default False)
+    info: also count informational findings in the result, not just count
+        them silently -- carabiner hides these from `new` by default, which
+        means a repo with only informational findings reads as a clean PASS
+        unless this is set (default False)
+    fail_on: severity threshold passed through to carabiner's --fail-on,
+        overriding its per-engine defaults -- needed alongside `info` to
+        actually fail the build on an informational finding, since carabiner
+        counting one in `new` and gating the exit code on it are separate
+        (default: carabiner's own per-engine thresholds)
 """
 from __future__ import annotations
 
@@ -25,6 +34,10 @@ def run(args: dict) -> tuple[str, str, dict]:
     cmd = ["carabiner", "scan", "--root", repo, "--json"]
     if args.get("all"):
         cmd.append("--all")
+    if args.get("info"):
+        cmd.append("--info")
+    if args.get("fail_on"):
+        cmd += ["--fail-on", args["fail_on"]]
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     try:
