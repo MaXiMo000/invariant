@@ -66,8 +66,11 @@ scanning; it wraps tools that already do those honestly:
 - **`sql`** is the trivial case, built in: one query, one expected scalar.
   stdlib `sqlite3` needs nothing extra; a `postgres://` dsn uses `psycopg` if
   `pip install invariant[postgres]` put it there, and reports `unverified`
-  rather than crashing if it didn't. Not every invariant needs a whole tool
-  behind it. See `examples/recur_invariants.yaml` for two real ones run
+  rather than crashing if it didn't. A dsn's password is stripped before it
+  ever reaches the evidence bundle — the dsn you pass in is used to connect,
+  never written to disk with its credential intact. Not every invariant
+  needs a whole tool behind it. See `examples/recur_invariants.yaml` for two
+  real ones run
   against [recur](https://github.com/MaXiMo000/recur)'s actual Postgres
   schema — "no subscription has a negative amount" and "every logged price
   change actually changed the price" — neither enforced by a schema
@@ -99,7 +102,11 @@ invariant run examples/invariant.yaml --evidence proof/
 check) plus one `<name>.json` per check holding its raw evidence — the exact
 command run, stdout/stderr, exit code, and the wrapped tool's own report
 where there is one. Enough for someone else to see what actually happened
-without taking the exit code's word for it.
+without taking the exit code's word for it. Each check type is responsible
+for keeping its own evidence honest but not sensitive — `sql`'s dsn
+redaction (above) is the one place this has actually mattered so far; a new
+check type that touches a credential should do the same before returning
+its evidence dict, not after.
 
 ## Add a check type
 

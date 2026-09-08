@@ -13,16 +13,38 @@ Args:
 from __future__ import annotations
 
 import sqlite3
+from urllib.parse import urlsplit, urlunsplit
 
 from ..model import FAIL, PASS, UNVERIFIED
 
 _PG_SCHEMES = ("postgres://", "postgresql://")
 
 
+def _redact_dsn(dsn: str) -> str:
+    """Strip a password out of a DSN before it goes into evidence.
+
+    A postgres(ql):// DSN can carry `user:pass@host` -- evidence is meant to
+    be written to disk and handed to someone else to inspect, so a live
+    credential must never be one of the things it hands over. sqlite DSNs
+    are a bare file path with no credential to leak, and pass through
+    unchanged.
+    """
+    if not dsn.startswith(_PG_SCHEMES):
+        return dsn
+    parts = urlsplit(dsn)
+    if parts.password is None:
+        return dsn
+    netloc = f"{parts.username}:[REDACTED]@{parts.hostname}" if parts.username else "[REDACTED]@" + (parts.hostname or "")
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
 def run(args: dict) -> tuple[str, str, dict]:
     dsn = args["dsn"]
     query = args["query"]
     expected = args["must_equal"]
+    safe_dsn = _redact_dsn(dsn)
 
     if dsn.startswith(_PG_SCHEMES):
         actual, err = _query_postgres(dsn, query)
@@ -30,9 +52,9 @@ def run(args: dict) -> tuple[str, str, dict]:
         actual, err = _query_sqlite(dsn, query)
 
     if err:
-        return UNVERIFIED, err, {"dsn": dsn, "query": query}
+        return UNVERIFIED, err, {"dsn": safe_dsn, "query": query}
 
-    evidence = {"dsn": dsn, "query": query, "actual": actual, "expected": expected}
+    evidence = {"dsn": safe_dsn, "query": query, "actual": actual, "expected": expected}
     if actual == expected:
         return PASS, f"{query!r} = {actual!r}", evidence
     return FAIL, f"{query!r} = {actual!r}, expected {expected!r}", evidence

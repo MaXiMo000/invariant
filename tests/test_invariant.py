@@ -18,6 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
 from invariant.checks import postgres_restore, security_scan
+from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
 
 
@@ -91,6 +92,51 @@ class TestRunner(unittest.TestCase):
         }]
         results = runner.run_all(invariants)
         self.assertEqual(results[0].status, UNVERIFIED)
+
+    def test_postgres_dsn_password_is_redacted_from_evidence(self):
+        # Regression test for a real finding from the portfolio audit: a
+        # postgres:// dsn embeds `user:pass@host`, and that password was
+        # landing verbatim in the evidence dict (and thus on disk via
+        # --evidence). No real Postgres needed here -- the redaction has to
+        # happen before the connection is even attempted, on both the
+        # unverified and the pass/fail paths.
+        invariants = [{
+            "name": "pg_check",
+            "check": "sql",
+            "args": {"dsn": "postgresql://appuser:s3cr3t-password@127.0.0.1:1/proddb",
+                     "query": "SELECT 1", "must_equal": 0},
+        }]
+        results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, UNVERIFIED)  # nothing listening on :1
+        self.assertNotIn("s3cr3t-password", json.dumps(results[0].evidence))
+        self.assertIn("appuser", results[0].evidence["dsn"])  # username kept, it isn't secret
+
+    def test_postgres_dsn_password_is_redacted_from_written_evidence_file(self):
+        # End-to-end: the same finding, verified against the actual file
+        # written to disk, the way it was originally confirmed live.
+        invariants = [{
+            "name": "pg_check",
+            "check": "sql",
+            "args": {"dsn": "postgresql://appuser:s3cr3t-password@127.0.0.1:1/proddb",
+                     "query": "SELECT 1", "must_equal": 0},
+        }]
+        results = runner.run_all(invariants)
+        out_dir = pathlib.Path(self.tmp.name) / "proof"
+        from invariant.evidence import write
+        write(results, out_dir)
+        written = (out_dir / "pg_check.json").read_text()
+        self.assertNotIn("s3cr3t-password", written)
+
+    def test_sqlite_dsn_a_file_path_is_left_alone(self):
+        # sqlite dsns are bare file paths -- nothing to redact, and the
+        # redaction pass must not mangle a normal path.
+        self.assertEqual(_redact_dsn("/tmp/demo.db"), "/tmp/demo.db")
+
+    def test_postgres_dsn_with_no_password_is_left_alone(self):
+        self.assertEqual(
+            _redact_dsn("postgresql://appuser@127.0.0.1/proddb"),
+            "postgresql://appuser@127.0.0.1/proddb",
+        )
 
     def test_evidence_bundle_is_written(self):
         _make_db(self.db_path, negative_payment=False)
