@@ -1,0 +1,29 @@
+# Runnable as-is: `invariant run examples/invariant.yaml`
+# (build the demo db first: `python examples/make_demo_db.py`)
+invariants:
+  - name: no_negative_payments
+    check: sql
+    args:
+      dsn: examples/demo.db
+      query: "SELECT COUNT(*) FROM payments WHERE amount < 0"
+      must_equal: 0
+
+  - name: orphan_orders_are_zero
+    check: sql
+    args:
+      dsn: examples/demo.db
+      query: "SELECT COUNT(*) FROM orders WHERE customer_id NOT IN (SELECT id FROM customers)"
+      must_equal: 0
+
+  # Needs Docker + `pip install firedrill`. Uncomment against a real dump:
+  # - name: latest_backup_restores
+  #   check: postgres_restore
+  #   args:
+  #     dump: backups/latest.dump
+  #     fail_on: high
+
+  # Needs `pip install carabiner-sec`. Uncomment to scan this repo itself:
+  # - name: repo_security_controls_fire
+  #   check: security_scan
+  #   args:
+  #     repo: .

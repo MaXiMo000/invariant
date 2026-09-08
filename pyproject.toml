@@ -1,0 +1,36 @@
+[project]
+name = "invariant"
+version = "0.1.0"
+description = "Declare what must stay true. invariant runs the checks and writes a proof bundle, not just a pass/fail line."
+requires-python = ">=3.10"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["testing", "verification", "ci", "invariants", "assertions",
+            "postgres", "security", "evidence"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+# PyYAML: the config format needs comments and readable multi-line diffs the
+# way GitHub Actions/docker-compose configs do; the checks themselves shell
+# out to firedrill/carabiner rather than importing them, so this is the only
+# dependency invariant has.
+dependencies = ["PyYAML>=6.0"]
+
+urls.Source = "https://github.com/MaXiMo000/invariant"
+
+[project.scripts]
+invariant = "invariant.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["invariant*"]
