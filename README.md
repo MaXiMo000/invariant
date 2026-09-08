@@ -79,8 +79,11 @@ a rewrite.
 
 ## Install
 
+Not on PyPI yet -- install from a [release](https://github.com/MaXiMo000/invariant/releases) or straight from git:
+
 ```bash
-pip install invariant           # + `pip install firedrill` / `carabiner-sec`
+pip install git+https://github.com/MaXiMo000/invariant
+                                 # + `pip install firedrill` / `carabiner-sec`
                                  # for the checks that need them
 ```
 
