@@ -2,6 +2,8 @@
 
 [![ci](https://github.com/MaXiMo000/invariant/actions/workflows/ci.yml/badge.svg)](https://github.com/MaXiMo000/invariant/actions/workflows/ci.yml)
 
+**<https://maximo000.github.io/invariant/>**
+
 **Declare what must stay true. Get more than pass/fail back.**
 
 Most CI tells you a build is green. It rarely tells you *why* it trusts that,

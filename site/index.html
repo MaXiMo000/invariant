@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>invariant — declare what must stay true</title>
+<meta name="description" content="invariant runs the checks that prove a claim instead of assuming it, and writes a proof bundle next to the report — evidence, not just a verdict.">
+<meta property="og:title" content="invariant">
+<meta property="og:description" content="A backup that passed. A repo that's secure. A number that adds up. How do you know? invariant proves it, or says it couldn't.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#14120F">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --basalt:#14120F; --basalt-hi:#1B1814; --basalt-lo:#0D0C09;
+  --parchment:#EDE6D8; --parchment-lo:#B8B0A0;
+  --brass:#B8823A; --brass-hi:#D9A857;
+  --patina:#5C8168; --rust:#B0452E;
+  --hair:rgba(237,230,216,.09); --hair-hi:rgba(237,230,216,.18);
+  --stamp:'Archivo',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{
+  margin:0;background:var(--basalt);color:var(--parchment);
+  font-family:var(--stamp);font-variation-settings:'wdth' 100,'wght' 400;
+  font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+h1,h2,h3{margin:0;font-variation-settings:'wdth' 116,'wght' 800;letter-spacing:-.02em;line-height:1.05}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--brass);outline-offset:3px}
+.mono{font-family:var(--mono)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--parchment-lo)}
+code,pre{font-family:var(--mono)}
+
+/* ---------- masthead ---------- */
+.mast{display:flex;justify-content:space-between;align-items:center;padding:26px 0;border-bottom:1px solid var(--hair)}
+.mark{display:flex;gap:11px;align-items:center;font-variation-settings:'wdth' 116,'wght' 800;font-size:19px}
+.mark i{width:13px;height:13px;border-radius:50%;border:2px solid var(--brass);display:block}
+.mast nav{display:flex;gap:26px}
+.mast nav a{text-decoration:none;font-size:14px;color:var(--parchment-lo);border-bottom:1px solid transparent;padding-bottom:2px}
+.mast nav a:hover{color:var(--parchment);border-color:var(--brass)}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:60px;align-items:center;padding:78px 0 64px}
+.hero h1{font-size:clamp(36px,5.6vw,64px)}
+.hero h1 em{font-style:normal;color:var(--brass)}
+.lede{font-size:19px;max-width:50ch;margin:24px 0 0;color:#D4CDBE}
+.cta{display:flex;gap:13px;flex-wrap:wrap;margin-top:32px}
+.btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;text-decoration:none;
+  font-size:14px;font-variation-settings:'wdth' 100,'wght' 700;letter-spacing:.02em;
+  background:var(--brass);color:#1B1814;border:1px solid var(--brass);transition:transform .15s,filter .15s;border-radius:2px}
+.btn:hover{transform:translateY(-2px);filter:brightness(1.1)}
+.btn.ghost{background:transparent;color:var(--parchment);border-color:var(--hair-hi)}
+.btn.ghost:hover{border-color:var(--brass);color:var(--brass-hi)}
+
+/* ---------- the disk: signature element ---------- */
+.disk-wrap{display:flex;justify-content:center;align-items:center;position:relative}
+.disk{width:min(360px,90%);aspect-ratio:1;position:relative}
+.disk svg{width:100%;height:100%}
+.disk-rim-text{font-family:var(--mono);font-size:8.6px;letter-spacing:.14em;fill:var(--parchment-lo)}
+.disk-face{fill:var(--basalt-hi);stroke:var(--hair-hi);stroke-width:1}
+.disk-status{font-family:var(--stamp);font-variation-settings:'wdth' 110,'wght' 800;
+  font-size:15px;letter-spacing:.06em;text-anchor:middle;transition:fill .5s}
+.disk-detail{font-family:var(--mono);font-size:9px;text-anchor:middle;fill:var(--parchment-lo)}
+.disk-ring{fill:none;stroke-width:2.5;transition:stroke .5s}
+.disk-caption{margin-top:18px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--parchment-lo)}
+
+/* ---------- sections ---------- */
+section{padding:64px 0;border-top:1px solid var(--hair)}
+.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:24px;margin-bottom:36px;flex-wrap:wrap}
+.section-head h2{font-size:clamp(24px,3.2vw,34px)}
+
+/* proof line: config -> terminal */
+.proof{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.panel{background:var(--basalt-hi);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
+.panel-head{padding:10px 16px;border-bottom:1px solid var(--hair);font-family:var(--mono);font-size:11px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--parchment-lo)}
+.panel pre{margin:0;padding:18px 16px;font-size:13px;line-height:1.7;overflow-x:auto;white-space:pre}
+.t-pass{color:var(--patina)}.t-fail{color:var(--rust)}.t-unverified{color:var(--brass-hi)}
+
+/* three statuses */
+.statuses{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.status-card{background:var(--basalt-hi);border:1px solid var(--hair);border-radius:3px;padding:26px}
+.status-mark{font-family:var(--mono);font-size:12px;letter-spacing:.14em;padding:3px 9px;border-radius:2px;display:inline-block}
+.status-mark.pass{background:rgba(92,129,104,.18);color:var(--patina)}
+.status-mark.fail{background:rgba(176,69,46,.18);color:#E08268}
+.status-mark.unverified{background:rgba(184,130,58,.18);color:var(--brass-hi)}
+.status-card p{color:var(--parchment-lo);font-size:14.5px;margin:14px 0 0}
+
+/* check types */
+.checks{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.check-card{border:1px solid var(--hair);border-radius:3px;padding:26px;background:var(--basalt-hi);position:relative}
+.check-card .eyebrow{margin-bottom:10px}
+.check-card h3{font-size:19px}
+.check-card p{color:var(--parchment-lo);font-size:14.5px;margin:12px 0 0}
+.check-card .wraps{margin-top:16px;font-family:var(--mono);font-size:12px;color:var(--brass-hi)}
+
+/* prose */
+.prose{max-width:70ch}
+.prose p{color:#D4CDBE;font-size:16.5px}
+.prose a{color:var(--brass-hi);text-decoration-color:var(--hair-hi)}
+
+/* install */
+.install pre{background:var(--basalt-hi);border:1px solid var(--hair);border-radius:3px;padding:18px 20px;font-size:13.5px;overflow-x:auto}
+
+footer{padding:40px 0 60px;border-top:1px solid var(--hair)}
+footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--parchment-lo)}
+footer a{color:var(--parchment-lo);text-decoration:none;border-bottom:1px solid var(--hair-hi)}
+footer a:hover{color:var(--brass-hi);border-color:var(--brass)}
+.fam{display:flex;gap:18px;flex-wrap:wrap}
+
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;padding:52px 0}
+  .disk-wrap{order:-1}
+  .proof,.statuses,.checks{grid-template-columns:1fr}
+  .mast nav{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="mast">
+    <div class="mark"><i></i>invariant</div>
+    <nav>
+      <a href="#proof">How it proves</a>
+      <a href="#checks">Check types</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/MaXiMo000/invariant">GitHub</a>
+    </nav>
+  </header>
+</div>
+
+<div class="wrap">
+  <section class="hero" style="border:0">
+    <div>
+      <p class="eyebrow">DECLARE · RUN · PROVE</p>
+      <h1>A backup that passed. A repo that's secure. A number that adds up.<br><em>How do you know?</em></h1>
+      <p class="lede">invariant runs the checks that would actually catch it if any of those were false — and writes a proof bundle next to the report, so the answer isn't just an exit code someone has to trust.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/MaXiMo000/invariant#use">Run it</a>
+        <a class="btn ghost" href="https://github.com/MaXiMo000/invariant">Source</a>
+      </div>
+    </div>
+    <div class="disk-wrap">
+      <div>
+        <div class="disk" id="disk">
+          <svg viewBox="0 0 200 200" role="img" aria-label="A benchmark disk cycling through invariant's three check states">
+            <defs>
+              <path id="rimpath" d="M 100,100 m -84,0 a 84,84 0 1,1 168,0 a 84,84 0 1,1 -168,0"/>
+            </defs>
+            <circle class="disk-face" cx="100" cy="100" r="96"/>
+            <circle cx="100" cy="100" r="86" fill="none" stroke="var(--hair)" stroke-width="1"/>
+            <text class="disk-rim-text"><textPath href="#rimpath" startOffset="2%">VERIFIED · NOT ASSUMED · VERIFIED · NOT ASSUMED ·</textPath></text>
+            <circle id="ring" class="disk-ring" cx="100" cy="100" r="62" stroke="var(--patina)"/>
+            <text id="glyph" class="disk-status" x="100" y="98" fill="var(--patina)">PASS</text>
+            <text id="detail" class="disk-detail" x="100" y="116">no_negative_payments</text>
+          </svg>
+        </div>
+        <p class="disk-caption" id="caption">'SELECT COUNT(*)...' = 0</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="proof">
+    <div class="section-head">
+      <h2>You declare it once.<br>invariant runs it every time.</h2>
+      <p class="eyebrow" style="max-width:34ch">the same config a person can read is the thing CI actually executes</p>
+    </div>
+    <div class="proof">
+      <div class="panel">
+        <div class="panel-head">invariant.yaml</div>
+        <pre>invariants:
+  - name: no_negative_payments
+    check: sql
+    args: {dsn: prod.db,
+      query: "SELECT COUNT(*)
+        FROM payments
+        WHERE amount &lt; 0",
+      must_equal: 0}
+
+  - name: latest_backup_restores
+    check: postgres_restore
+    args: {dump: backups/latest.dump}
+
+  - name: repo_controls_fire
+    check: security_scan
+    args: {repo: .}</pre>
+      </div>
+      <div class="panel">
+        <div class="panel-head">$ invariant run invariant.yaml --evidence proof/</div>
+        <pre>  [<span class="t-pass">PASS</span>] no_negative_payments        0.00s  'SELECT COUNT(*)...' = 0
+  [<span class="t-fail">FAIL</span>] latest_backup_restores      4.31s  firedrill restored the
+                                        archive and found problems
+  [<span class="t-unverified">????</span>] repo_controls_fire          0.00s  carabiner is not
+                                        installed (pip install
+                                        carabiner-sec)
+
+  1 passed, 1 failed, 1 unverified
+
+  evidence written to proof/</pre>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section>
+    <div class="section-head">
+      <h2>Three statuses, not two</h2>
+    </div>
+    <div class="prose" style="margin-bottom:32px">
+      <p>A check that could not run — the tool isn't installed, Docker is down, a credential is missing — is not the same fact as a check that ran and found a problem. Folding both into "fail" throws away the difference; folding the first into "pass" is worse, because now the report is lying. <code>unverified</code> is its own status everywhere, and it fails the build: an invariant nobody could check is not one you get to call satisfied.</p>
+    </div>
+    <div class="statuses">
+      <div class="status-card">
+        <span class="status-mark pass">PASS</span>
+        <p>The check ran, and what it found matches what you declared. This is the only status a green build should mean.</p>
+      </div>
+      <div class="status-card">
+        <span class="status-mark fail">FAIL</span>
+        <p>The check ran, in full, and found the invariant broken. You get the exact reason — a query result, a diff, a finding — not just a red X.</p>
+      </div>
+      <div class="status-card">
+        <span class="status-mark unverified">UNVERIFIED</span>
+        <p>The check could not run at all. Reported as its own thing, loudly, because a claim nobody could test is not evidence of anything.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="checks">
+    <div class="section-head">
+      <h2>Three check types today.<br>A fourth is one file.</h2>
+      <p class="eyebrow" style="max-width:30ch">a check is <span class="mono">args → (status, detail, evidence)</span>. nothing else changes.</p>
+    </div>
+    <div class="checks">
+      <div class="check-card">
+        <p class="eyebrow">STDLIB ONLY</p>
+        <h3>sql</h3>
+        <p>One query, one expected scalar. Built straight into <code>sqlite3</code> — not every invariant needs a whole tool behind it.</p>
+        <p class="wraps">wraps: nothing</p>
+      </div>
+      <div class="check-card">
+        <p class="eyebrow">SHELLS OUT</p>
+        <h3>postgres_restore</h3>
+        <p>Restores a Postgres dump into a disposable, version-matched container and reads back whether it actually worked.</p>
+        <p class="wraps">wraps: <a href="https://github.com/MaXiMo000/firedrill" style="color:inherit">firedrill</a></p>
+      </div>
+      <div class="check-card">
+        <p class="eyebrow">SHELLS OUT</p>
+        <h3>security_scan</h3>
+        <p>Runs a repo through multiple security engines and reports only what's new since the last accepted baseline.</p>
+        <p class="wraps">wraps: <a href="https://github.com/MaXiMo000/carabiner" style="color:inherit">carabiner</a></p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section>
+    <div class="section-head"><h2>Why another one</h2></div>
+    <div class="prose">
+      <p>Because the interesting part was never the runner — it's what backs each check. invariant doesn't reimplement backup verification or security scanning; it wraps tools that already do those honestly and reads their own reports as evidence, rather than trusting an exit code to summarize what happened.</p>
+      <p>Four repos that each individually prove one claim — this backup works, this repo is secure, these numbers reconcile — become one config file that proves all of it, with one report and one evidence directory next to it. A fifth check type is one new file under <code>checks/</code>, not a rewrite of the runner.</p>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="install" class="install">
+    <div class="section-head"><h2>Install</h2></div>
+    <pre>pip install invariant                 # + firedrill / carabiner-sec
+                                       # for the checks that need them
+
+python examples/make_demo_db.py
+invariant run examples/invariant.yaml --evidence proof/</pre>
+  </section>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed · <a href="https://github.com/MaXiMo000/invariant">github.com/MaXiMo000/invariant</a></span>
+    <div class="fam">
+      <a href="https://github.com/MaXiMo000/firedrill">firedrill</a>
+      <a href="https://github.com/MaXiMo000/carabiner">carabiner</a>
+      <a href="https://github.com/MaXiMo000/recur">recur</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// The disk cycles through the exact three states the CLI prints, so the
+// hero is a real demo of the report, not an illustration of one.
+(function(){
+  var states = [
+    {status:"PASS", color:"var(--patina)", detail:"no_negative_payments", caption:"'SELECT COUNT(*)...' = 0"},
+    {status:"FAIL", color:"var(--rust)", detail:"latest_backup_restores", caption:"firedrill found problems"},
+    {status:"UNVERIFIED", color:"var(--brass-hi)", detail:"repo_controls_fire", caption:"carabiner is not installed"}
+  ];
+  var i = 0;
+  var glyph = document.getElementById('glyph');
+  var ring = document.getElementById('ring');
+  var detail = document.getElementById('detail');
+  var caption = document.getElementById('caption');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function paint(s){
+    glyph.textContent = s.status;
+    glyph.style.fill = s.color;
+    ring.style.stroke = s.color;
+    detail.textContent = s.detail;
+    caption.textContent = s.caption;
+  }
+  paint(states[0]);
+  if(!reduced){
+    setInterval(function(){ i = (i+1) % states.length; paint(states[i]); }, 3200);
+  }
+})();
+</script>
+
+</body>
+</html>
