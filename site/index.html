@@ -66,9 +66,9 @@ code,pre{font-family:var(--mono)}
 .disk-rim-text{font-family:var(--mono);font-size:8.6px;letter-spacing:.14em;fill:var(--parchment-lo)}
 .disk-face{fill:var(--basalt-hi);stroke:var(--hair-hi);stroke-width:1}
 .disk-status{font-family:var(--stamp);font-variation-settings:'wdth' 110,'wght' 800;
-  font-size:15px;letter-spacing:.06em;text-anchor:middle;transition:fill .5s}
+  font-size:15px;letter-spacing:.06em;text-anchor:middle}
 .disk-detail{font-family:var(--mono);font-size:9px;text-anchor:middle;fill:var(--parchment-lo)}
-.disk-ring{fill:none;stroke-width:2.5;transition:stroke .5s}
+.disk-ring{fill:none;stroke-width:2.5}
 .disk-caption{margin-top:18px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--parchment-lo)}
 
 /* ---------- sections ---------- */
@@ -315,8 +315,8 @@ invariant run examples/invariant.yaml --evidence proof/</pre>
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function paint(s){
     glyph.textContent = s.status;
-    glyph.style.fill = s.color;
-    ring.style.stroke = s.color;
+    glyph.setAttribute('fill', s.color);
+    ring.setAttribute('stroke', s.color);
     detail.textContent = s.detail;
     caption.textContent = s.caption;
   }
