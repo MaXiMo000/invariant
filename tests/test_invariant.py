@@ -5,6 +5,7 @@ report "unverified", never fold silently into "pass" or "fail".
 """
 from __future__ import annotations
 
+import io
 import json
 import pathlib
 import sqlite3
@@ -12,12 +13,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
-from invariant.checks import postgres_restore, security_scan
+from invariant.checks import filesystem, http, postgres_restore, security_scan
 from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
 
@@ -296,6 +298,111 @@ class TestPostgresRestore(unittest.TestCase):
             status, detail, _ = postgres_restore.run({"dump": "dump.custom"})
         self.assertEqual(status, UNVERIFIED)
         self.assertIn("900", detail)
+
+
+class TestHttp(unittest.TestCase):
+    def _fake_response(self, status: int, body: bytes):
+        resp = mock.MagicMock()
+        resp.status = status
+        resp.read.return_value = body
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        return resp
+
+    def test_default_2xx_check_passes_on_200(self):
+        with mock.patch("urllib.request.urlopen", return_value=self._fake_response(200, b"ok")):
+            status, detail, evidence = http.run({"url": "https://example.com/health"})
+        self.assertEqual(status, PASS)
+        self.assertEqual(evidence["status"], 200)
+
+    def test_default_2xx_check_fails_on_500(self):
+        err = urllib.error.HTTPError("https://example.com", 500, "Internal Server Error",
+                                      {}, io.BytesIO(b"boom"))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            status, detail, evidence = http.run({"url": "https://example.com/health"})
+        self.assertEqual(status, FAIL)
+        self.assertIn("500", detail)
+
+    def test_expect_status_checks_the_exact_code(self):
+        with mock.patch("urllib.request.urlopen", return_value=self._fake_response(204, b"")):
+            status, detail, _ = http.run({"url": "https://example.com/x", "expect_status": 200})
+        self.assertEqual(status, FAIL)
+        self.assertIn("204", detail)
+        self.assertIn("expected 200", detail)
+
+    def test_expect_contains_checks_the_body(self):
+        with mock.patch("urllib.request.urlopen", return_value=self._fake_response(200, b"status: healthy")):
+            status, detail, _ = http.run({"url": "https://example.com/x", "expect_contains": "healthy"})
+        self.assertEqual(status, PASS)
+
+    def test_expect_contains_fails_when_missing(self):
+        with mock.patch("urllib.request.urlopen", return_value=self._fake_response(200, b"status: down")):
+            status, detail, _ = http.run({"url": "https://example.com/x", "expect_contains": "healthy"})
+        self.assertEqual(status, FAIL)
+
+    def test_unreachable_host_is_unverified_not_a_crash(self):
+        with mock.patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+            status, detail, _ = http.run({"url": "https://nope.invalid/x"})
+        self.assertEqual(status, UNVERIFIED)
+
+    def test_full_response_body_is_never_written_into_evidence(self):
+        big_secret_body = b"token=super-secret-value-that-should-not-be-in-evidence"
+        with mock.patch("urllib.request.urlopen", return_value=self._fake_response(200, big_secret_body)):
+            _, _, evidence = http.run({"url": "https://example.com/x"})
+        self.assertNotIn("super-secret-value", json.dumps(evidence))
+        self.assertEqual(evidence["body_length"], len(big_secret_body))
+
+
+class TestFilesystem(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_existing_file_passes(self):
+        p = pathlib.Path(self.tmp.name) / "deployed.txt"
+        p.write_text("x")
+        status, detail, _ = filesystem.run({"path": str(p)})
+        self.assertEqual(status, PASS)
+
+    def test_missing_file_fails(self):
+        p = pathlib.Path(self.tmp.name) / "does_not_exist.txt"
+        status, detail, _ = filesystem.run({"path": str(p)})
+        self.assertEqual(status, FAIL)
+
+    def test_must_exist_false_passes_when_absent(self):
+        p = pathlib.Path(self.tmp.name) / "should_be_gone.txt"
+        status, detail, _ = filesystem.run({"path": str(p), "must_exist": False})
+        self.assertEqual(status, PASS)
+
+    def test_must_exist_false_fails_when_present(self):
+        p = pathlib.Path(self.tmp.name) / "still_here.txt"
+        p.write_text("x")
+        status, detail, _ = filesystem.run({"path": str(p), "must_exist": False})
+        self.assertEqual(status, FAIL)
+
+    def test_type_check_distinguishes_file_from_dir(self):
+        p = pathlib.Path(self.tmp.name) / "adir"
+        p.mkdir()
+        status, detail, _ = filesystem.run({"path": str(p), "type": "file"})
+        self.assertEqual(status, FAIL)
+        self.assertIn("dir", detail)
+
+    def test_mode_check_as_octal_int(self):
+        p = pathlib.Path(self.tmp.name) / "script.sh"
+        p.write_text("#!/bin/sh")
+        p.chmod(0o755)
+        status, detail, _ = filesystem.run({"path": str(p), "mode": 0o755})
+        self.assertEqual(status, PASS)
+
+    def test_mode_check_as_octal_string_fails_on_mismatch(self):
+        p = pathlib.Path(self.tmp.name) / "secret.env"
+        p.write_text("SECRET=x")
+        p.chmod(0o644)
+        status, detail, _ = filesystem.run({"path": str(p), "mode": "600"})
+        self.assertEqual(status, FAIL)
+        self.assertIn("644", detail)
 
 
 if __name__ == "__main__":
