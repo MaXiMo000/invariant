@@ -6,7 +6,7 @@
 # under it). This is only the `pip install` name: the CLI command, the
 # `invariant` package/import, and the GitHub repo all stay "invariant".
 name = "invariant-verify"
-version = "0.1.0"
+version = "0.1.1"
 description = "Declare what must stay true. invariant runs the checks and writes a proof bundle, not just a pass/fail line."
 requires-python = ">=3.10"
 readme = "README.md"
