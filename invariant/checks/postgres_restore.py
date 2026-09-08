@@ -9,6 +9,11 @@ distinction rather than collapsing it to pass/fail.
 Args:
     dump: path to a pg_dump archive
     fail_on: severity threshold passed through to firedrill (optional)
+    timeout: seconds to wait for firedrill before giving up (default 900,
+        generous because a real restore is the point) -- without this, a
+        stuck Docker pull or a restore that never returns blocks the whole
+        invariant run forever instead of reporting unverified, which is
+        exactly the silent-hang this tool exists to refuse
 """
 from __future__ import annotations
 
@@ -19,6 +24,8 @@ import subprocess
 import tempfile
 
 from ..model import FAIL, PASS, UNVERIFIED
+
+_DEFAULT_TIMEOUT = 900
 
 
 def run(args: dict) -> tuple[str, str, dict]:
@@ -33,8 +40,12 @@ def run(args: dict) -> tuple[str, str, dict]:
     if "fail_on" in args:
         cmd += ["--fail-on", args["fail_on"]]
 
+    timeout = args.get("timeout", _DEFAULT_TIMEOUT)
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return UNVERIFIED, f"firedrill did not finish within {timeout}s", {"command": cmd}
         try:
             report = json.loads(open(report_path, encoding="utf-8").read())
         except (FileNotFoundError, json.JSONDecodeError):

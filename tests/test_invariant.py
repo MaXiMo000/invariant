@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,7 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
-from invariant.checks import security_scan
+from invariant.checks import postgres_restore, security_scan
 from invariant.model import FAIL, PASS, UNVERIFIED
 
 
@@ -142,6 +143,30 @@ class TestSecurityScan(unittest.TestCase):
         cmd = self._run_with_fake_carabiner({"repo": "."})
         self.assertNotIn("--info", cmd)
         self.assertNotIn("--fail-on", cmd)
+
+    def test_hung_carabiner_is_unverified_not_a_hang(self):
+        def fake_run(cmd, **kw):
+            self.assertIn("timeout", kw)
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+        with mock.patch("shutil.which", return_value="/usr/bin/carabiner"), \
+             mock.patch("subprocess.run", side_effect=fake_run):
+            status, detail, _ = security_scan.run({"repo": "."})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("300", detail)
+
+
+class TestPostgresRestore(unittest.TestCase):
+    def test_hung_firedrill_is_unverified_not_a_hang(self):
+        def fake_run(cmd, **kw):
+            self.assertIn("timeout", kw)
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+        with mock.patch("shutil.which", return_value="/usr/bin/firedrill"), \
+             mock.patch("subprocess.run", side_effect=fake_run):
+            status, detail, _ = postgres_restore.run({"dump": "dump.custom"})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("900", detail)
 
 
 if __name__ == "__main__":

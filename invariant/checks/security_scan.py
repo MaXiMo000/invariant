@@ -15,6 +15,11 @@ Args:
         actually fail the build on an informational finding, since carabiner
         counting one in `new` and gating the exit code on it are separate
         (default: carabiner's own per-engine thresholds)
+    timeout: seconds to wait for carabiner before giving up (default 300) --
+        without this, a carabiner hang (a scanner stuck on a huge lockfile,
+        a stalled network call) blocks the whole invariant run forever
+        instead of reporting unverified, which is exactly the silent-hang
+        this tool exists to refuse
 """
 from __future__ import annotations
 
@@ -23,6 +28,8 @@ import shutil
 import subprocess
 
 from ..model import FAIL, PASS, UNVERIFIED
+
+_DEFAULT_TIMEOUT = 300
 
 
 def run(args: dict) -> tuple[str, str, dict]:
@@ -39,7 +46,12 @@ def run(args: dict) -> tuple[str, str, dict]:
     if args.get("fail_on"):
         cmd += ["--fail-on", args["fail_on"]]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    timeout = args.get("timeout", _DEFAULT_TIMEOUT)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return UNVERIFIED, f"carabiner did not finish within {timeout}s", {"command": cmd}
+
     try:
         report = json.loads(proc.stdout)
     except json.JSONDecodeError:
