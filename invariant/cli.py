@@ -14,10 +14,14 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("config", help="path to invariant.yaml")
     run_p.add_argument("--evidence", metavar="DIR",
                         help="write a proof bundle (per-check evidence + manifest) to DIR")
+    run_p.add_argument("--check", metavar="NAME", action="append", dest="only", default=None,
+                        help="run only this invariant (repeatable); omit to run everything in the config")
+    run_p.add_argument("--json", action="store_true",
+                        help="print results as a JSON array instead of the human report")
 
     args = parser.parse_args(argv)
     if args.command == "run":
-        return run(args.config, args.evidence)
+        return run(args.config, args.evidence, only=args.only, as_json=args.json)
     return 2  # argparse's `required=True` makes this unreachable; kept honest anyway.
 
 

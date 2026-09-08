@@ -79,6 +79,66 @@ class TestRunner(unittest.TestCase):
         results = runner.run_all(invariants)
         self.assertEqual(results[0].status, UNVERIFIED)
 
+    def test_a_missing_required_arg_says_so_clearly_not_a_bare_keyerror_repr(self):
+        # This is the actual finding from the audit: a config typo and a
+        # genuinely flaky check used to produce an identical-looking
+        # `check raised KeyError('dsn')` message. They're distinguishable now.
+        invariants = [{"name": "bad_args", "check": "sql", "args": {}}]
+        results = runner.run_all(invariants)
+        self.assertIn("missing required arg 'dsn'", results[0].detail)
+        self.assertIn("check type 'sql'", results[0].detail)
+        self.assertNotIn("KeyError", results[0].detail)
+
+    def test_env_var_reference_in_args_is_expanded(self):
+        _make_db(self.db_path, negative_payment=False)
+        with mock.patch.dict("os.environ", {"TEST_DB_PATH": self.db_path}):
+            invariants = [{
+                "name": "check",
+                "check": "sql",
+                "args": {"dsn": "${TEST_DB_PATH}",
+                         "query": "SELECT COUNT(*) FROM payments WHERE amount < 0",
+                         "must_equal": 0},
+            }]
+            results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, PASS)
+
+    def test_partial_env_var_reference_inside_a_larger_string_is_expanded(self):
+        with mock.patch.dict("os.environ", {"TEST_SECRET": "hunter2"}):
+            invariants = [{
+                "name": "check",
+                "check": "sql",
+                "args": {"dsn": "postgresql://user:${TEST_SECRET}@127.0.0.1:1/db",
+                         "query": "SELECT 1", "must_equal": 0},
+            }]
+            results = runner.run_all(invariants)
+        # Never listening on :1 -- what matters is the dsn was actually
+        # expanded before the connection was attempted, not left as the
+        # literal, unusable "${TEST_SECRET}" string.
+        self.assertEqual(results[0].status, UNVERIFIED)
+        self.assertNotIn("${TEST_SECRET}", str(results[0].evidence))
+
+    def test_unset_env_var_reference_is_unverified_with_a_clear_reason(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            invariants = [{
+                "name": "check",
+                "check": "sql",
+                "args": {"dsn": "${DEFINITELY_NOT_SET_XYZ}", "query": "SELECT 1", "must_equal": 0},
+            }]
+            results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, UNVERIFIED)
+        self.assertIn("DEFINITELY_NOT_SET_XYZ", results[0].detail)
+        self.assertIn("is not set", results[0].detail)
+
+    def test_check_filter_runs_only_the_named_invariant(self):
+        _make_db(self.db_path, negative_payment=False)
+        invariants = [
+            {"name": "a", "check": "sql", "args": {"dsn": self.db_path, "query": "SELECT 1", "must_equal": 1}},
+            {"name": "b", "check": "sql", "args": {"dsn": self.db_path, "query": "SELECT 2", "must_equal": 1}},
+        ]
+        results = runner.run_all(invariants, only=["a"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].name, "a")
+
     def test_sql_check_routes_postgres_dsn_without_crashing(self):
         # No real Postgres in this suite -- what matters is that a pg dsn
         # goes down the postgres path (missing driver or bad connection) and
@@ -156,6 +216,29 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(len(manifest["checks"]), 1)
         self.assertEqual(manifest["checks"][0]["status"], PASS)
         self.assertTrue((out_dir / "no_negative_payments.json").exists())
+
+    def test_json_output_through_the_real_cli_is_a_valid_result_array(self):
+        import contextlib
+        import io
+
+        from invariant.cli import main as cli_main
+
+        _make_db(self.db_path, negative_payment=False)
+        config_path = pathlib.Path(self.tmp.name) / "invariant.yaml"
+        config_path.write_text(
+            "invariants:\n"
+            "  - name: check_one\n"
+            "    check: sql\n"
+            f"    args: {{dsn: {self.db_path}, query: 'SELECT 1', must_equal: 1}}\n"
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli_main(["run", str(config_path), "--json"])
+        self.assertEqual(code, 0)
+        parsed = json.loads(out.getvalue())
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["name"], "check_one")
+        self.assertEqual(parsed[0]["status"], PASS)
 
 
 class TestSecurityScan(unittest.TestCase):
