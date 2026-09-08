@@ -25,19 +25,28 @@ def sh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     return result
 
 
+def _wait_ready(attempts: int = 60, delay: float = 1.0) -> None:
+    """pg_isready can report ready during the container's own internal
+    restart -- the postgres image starts a temporary server for initdb's
+    scripts, stops it, then starts the real one -- so a separate readiness
+    check can pass in that gap right before the connection it was meant to
+    guarantee fails. Probe with the actual operation instead."""
+    last_err = ""
+    for _ in range(attempts):
+        probe = sh("docker", "exec", "-u", "postgres", NAME, "psql", "-U", "postgres",
+                   "-c", "select 1", check=False)
+        if probe.returncode == 0:
+            return
+        last_err = probe.stderr
+        time.sleep(delay)
+    raise RuntimeError(f"postgres:16 never accepted a connection: {last_err}")
+
+
 def build() -> None:
     sh("docker", "run", "-d", "--name", NAME,
        "-e", "POSTGRES_PASSWORD=demo-only-not-a-secret", "postgres:16")
     try:
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            if sh("docker", "exec", "-u", "postgres", NAME,
-                  "pg_isready", "-U", "postgres", "-q", check=False).returncode == 0:
-                break
-            time.sleep(0.3)
-        else:
-            raise RuntimeError("postgres:16 never became ready")
-
+        _wait_ready()
         sh("docker", "exec", "-u", "postgres", NAME, "psql", "-U", "postgres",
            "-c", "create table customer(id serial primary key, email text not null)")
         sh("docker", "exec", "-u", "postgres", NAME, "psql", "-U", "postgres",
