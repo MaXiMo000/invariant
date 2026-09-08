@@ -1,0 +1,93 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The tests are the gate. A release that skips them is a promise nobody checked.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --disable-pip-version-check -e .
+      - run: python tests/test_invariant.py
+
+      # The tag and the packaged version must be the same thing, or the repo
+      # ships vX.Y.Z built from a tree that still says something else.
+      - name: The tag agrees with pyproject
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          declared="$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
+          echo "tag=$tag  pyproject=$declared"
+          test "$tag" = "$declared"
+
+  # Every tag gets a Release, not just a tag left to speak for itself.
+  github-release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install build && python -m build
+      - name: Create the Release with the artefacts attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/notes.md
+          {
+            echo
+            echo "---"
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" --jq .body
+          } >> /tmp/notes.md
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "invariant $GITHUB_REF_NAME" \
+            --notes-file /tmp/notes.md \
+            dist/*
+      - name: It exists, and points at this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" --json tagName,isDraft \
+            --jq 'select(.isDraft == false) | .tagName' | grep -qx "$GITHUB_REF_NAME"
+
+  pypi:
+    needs: verify
+    # Off until a trusted publisher exists on pypi.org for this repo (account
+    # setup, not something a workflow file can do). Set the repo variable
+    # PYPI_ENABLED to "true" once that's done -- gated rather than failing, so
+    # tagging and the GitHub Release work before the PyPI side is set up.
+    if: vars.PYPI_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write   # OIDC. No long-lived API token lives in this repo.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install build && python -m build
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
