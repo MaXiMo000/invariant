@@ -75,6 +75,20 @@ class TestRunner(unittest.TestCase):
         results = runner.run_all(invariants)
         self.assertEqual(results[0].status, UNVERIFIED)
 
+    def test_sql_check_routes_postgres_dsn_without_crashing(self):
+        # No real Postgres in this suite -- what matters is that a pg dsn
+        # goes down the postgres path (missing driver or bad connection) and
+        # comes back unverified rather than raising, whether or not psycopg
+        # happens to be installed in the environment running this test.
+        invariants = [{
+            "name": "pg_check",
+            "check": "sql",
+            "args": {"dsn": "postgresql://nouser@127.0.0.1:1/nodb",
+                     "query": "SELECT 1", "must_equal": 0},
+        }]
+        results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, UNVERIFIED)
+
     def test_evidence_bundle_is_written(self):
         _make_db(self.db_path, negative_payment=False)
         invariants = [{

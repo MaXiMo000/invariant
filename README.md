@@ -62,8 +62,15 @@ scanning; it wraps tools that already do those honestly:
   [carabiner](https://github.com/MaXiMo000/carabiner), which runs multiple
   scanners against a repo, ratchets existing findings, and reports only
   what's new.
-- **`sql`** is the trivial case, built in: one query, one expected scalar,
-  stdlib `sqlite3`. Not every invariant needs a whole tool behind it.
+- **`sql`** is the trivial case, built in: one query, one expected scalar.
+  stdlib `sqlite3` needs nothing extra; a `postgres://` dsn uses `psycopg` if
+  `pip install invariant[postgres]` put it there, and reports `unverified`
+  rather than crashing if it didn't. Not every invariant needs a whole tool
+  behind it. See `examples/recur_invariants.yaml` for two real ones run
+  against [recur](https://github.com/MaXiMo000/recur)'s actual Postgres
+  schema — "no subscription has a negative amount" and "every logged price
+  change actually changed the price" — neither enforced by a schema
+  constraint, which is the point.
 
 Four repos that individually prove "this backup works" or "this repo is
 secure" become one config file that proves all of it, with one report and one

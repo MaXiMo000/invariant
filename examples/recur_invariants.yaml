@@ -1,0 +1,30 @@
+# A real invariant against a real schema, not the synthetic demo db --
+# https://github.com/MaXiMo000/recur's Postgres schema, on a throwaway
+# container. Needs recur checked out and Docker running:
+#
+#   git clone https://github.com/MaXiMo000/recur ../recur   # sibling checkout
+#   docker run -d --name recur-demo-pg -e POSTGRES_USER=recur \
+#     -e POSTGRES_PASSWORD=recur -e POSTGRES_DB=recur \
+#     -p 127.0.0.1:5544:5432 pgvector/pgvector:pg16
+#   PGPASSWORD=recur psql -h 127.0.0.1 -p 5544 -U recur -d recur \
+#     -f ../recur/app/schema.sql
+#   pip install invariant[postgres]
+#   invariant run examples/recur_invariants.yaml
+#   docker rm -f recur-demo-pg
+#
+# Neither query is enforced by a schema CHECK constraint -- these are exactly
+# the invariants a foreign key or NOT NULL can't express.
+invariants:
+  - name: no_negative_subscription_amounts
+    check: sql
+    args:
+      dsn: postgresql://recur:recur@127.0.0.1:5544/recur
+      query: "SELECT COUNT(*) FROM subscription WHERE current_amount_cents < 0"
+      must_equal: 0
+
+  - name: price_changes_are_actually_changes
+    check: sql
+    args:
+      dsn: postgresql://recur:recur@127.0.0.1:5544/recur
+      query: "SELECT COUNT(*) FROM price_change WHERE old_amount_cents = new_amount_cents"
+      must_equal: 0

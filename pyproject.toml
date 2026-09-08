@@ -25,6 +25,12 @@ dependencies = ["PyYAML>=6.0"]
 
 urls.Source = "https://github.com/MaXiMo000/invariant"
 
+[project.optional-dependencies]
+# Only for a `sql` check pointed at a postgres:// dsn. Without it, that check
+# type still works against sqlite and reports `unverified` (not a crash) for
+# a postgres dsn -- same pattern as firedrill/carabiner being optional.
+postgres = ["psycopg[binary]>=3.2"]
+
 [project.scripts]
 invariant = "invariant.cli:main"
 
