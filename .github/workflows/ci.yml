@@ -37,6 +37,28 @@ jobs:
       - run: pip install -e . carabiner-sec
       - run: invariant run invariant.yaml
 
+  postgres_restore:
+    # The one check type untested by `dogfood` or `package`: it needs a real
+    # dump and firedrill's own container restore, which is slow and
+    # Docker-only, so it gets its own job instead of slowing down `test`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install -e . firedrill
+      - run: python examples/make_demo_dump.py
+      - name: postgres_restore passes against a real dump
+        run: |
+          cat > /tmp/restore.yaml <<'EOF'
+          invariants:
+            - name: demo_dump_restores
+              check: postgres_restore
+              args: {dump: examples/demo.dump}
+          EOF
+          invariant run /tmp/restore.yaml
+
   package:
     # Build and install the distribution on every commit, not only at release --
     # a packaging break (missing package data, wrong entry point) is invisible

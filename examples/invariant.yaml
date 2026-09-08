@@ -15,11 +15,12 @@ invariants:
       query: "SELECT COUNT(*) FROM orders WHERE customer_id NOT IN (SELECT id FROM customers)"
       must_equal: 0
 
-  # Needs Docker + `pip install firedrill`. Uncomment against a real dump:
+  # Needs Docker + `pip install firedrill`. Build a real one with
+  # `python examples/make_demo_dump.py`, then uncomment:
   # - name: latest_backup_restores
   #   check: postgres_restore
   #   args:
-  #     dump: backups/latest.dump
+  #     dump: examples/demo.dump
   #     fail_on: high
 
   # Needs `pip install carabiner-sec`. Uncomment to scan this repo itself:
