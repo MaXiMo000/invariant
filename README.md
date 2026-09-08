@@ -79,7 +79,7 @@ a rewrite.
 
 ## Install
 
-Not on PyPI yet -- install from a [release](https://github.com/MaXiMo000/invariant/releases) or straight from git:
+Not on PyPI yet -- install from a [release](https://github.com/MaXiMo000/invariant/releases) or straight from git. Once published it'll be `pip install invariant-verify` (PyPI blocks the plain name "invariant" -- see [pyproject.toml](pyproject.toml) -- but the command below and the `invariant` import stay the same either way):
 
 ```bash
 pip install git+https://github.com/MaXiMo000/invariant

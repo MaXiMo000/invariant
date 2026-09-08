@@ -1,5 +1,11 @@
 [project]
-name = "invariant"
+# The PyPI distribution name. "invariant" itself is blocked by PyPI's project
+# name policy (their own docs list four possible reasons -- stdlib collision,
+# confusable-with-existing, explicitly prohibited, or claimed-but-unreleased
+# -- and don't say which; /simple/invariant/ 404s, so nobody has ever shipped
+# under it). This is only the `pip install` name: the CLI command, the
+# `invariant` package/import, and the GitHub repo all stay "invariant".
+name = "invariant-verify"
 version = "0.1.0"
 description = "Declare what must stay true. invariant runs the checks and writes a proof bundle, not just a pass/fail line."
 requires-python = ">=3.10"
