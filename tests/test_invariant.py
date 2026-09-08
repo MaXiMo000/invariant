@@ -19,7 +19,7 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
-from invariant.checks import filesystem, http, postgres_restore, security_scan
+from invariant.checks import filesystem, http, postgres_restore, receipt, security_scan
 from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
 
@@ -403,6 +403,61 @@ class TestFilesystem(unittest.TestCase):
         status, detail, _ = filesystem.run({"path": str(p), "mode": "600"})
         self.assertEqual(status, FAIL)
         self.assertIn("644", detail)
+
+
+class TestReceiptCheck(unittest.TestCase):
+    """Reads real receipt.evidence.write() output where possible -- this is
+    the concrete receipt -> invariant integration, not a hand-typed
+    approximation of receipt's shape."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_real_receipt(self, status: str, detail: str = "detail") -> str:
+        try:
+            from receipt.evidence import write as write_receipt
+        except ImportError:
+            self.skipTest("receipt is not installed -- pip install -e ../receipt to run this test")
+        result = {
+            "task": "test", "command": ["echo"], "watch_dir": ".", "exit_code": 0,
+            "seconds": 0.1, "stdout": "", "stderr": "", "declared_paths": [],
+            "changes": {"added": [], "modified": [], "removed": [], "renamed": [], "mode_changed": []},
+            "unexpected": [], "status": status, "detail": detail,
+        }
+        path = write_receipt(result, self.tmp.name)
+        return str(path)
+
+    def test_a_real_pass_receipt_passes(self):
+        path = self._write_real_receipt("pass", "touched only what was declared (1 file(s))")
+        status, detail, evidence = receipt.run({"path": path})
+        self.assertEqual(status, PASS)
+        self.assertIn("touched only what was declared", detail)
+
+    def test_a_real_fail_receipt_fails(self):
+        path = self._write_real_receipt("fail", "touched 1 undeclared file(s): sneaky.txt")
+        status, detail, evidence = receipt.run({"path": path})
+        self.assertEqual(status, FAIL)
+        self.assertIn("sneaky.txt", detail)
+
+    def test_expect_status_can_require_unverified(self):
+        # A legitimate use: asserting a task was run in audit-only mode.
+        path = self._write_real_receipt("unverified", "3 file(s) touched; no declared scope")
+        status, detail, _ = receipt.run({"path": path, "expect_status": "unverified"})
+        self.assertEqual(status, PASS)
+
+    def test_missing_receipt_file_is_unverified(self):
+        status, detail, _ = receipt.run({"path": str(pathlib.Path(self.tmp.name) / "nope.json")})
+        self.assertEqual(status, UNVERIFIED)
+
+    def test_a_file_that_is_not_a_receipt_is_unverified(self):
+        p = pathlib.Path(self.tmp.name) / "not_a_receipt.json"
+        p.write_text('{"hello": "world"}')
+        status, detail, _ = receipt.run({"path": str(p)})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("doesn't look like a receipt", detail)
 
 
 if __name__ == "__main__":

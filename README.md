@@ -75,6 +75,24 @@ scanning; it wraps tools that already do those honestly:
   schema — "no subscription has a negative amount" and "every logged price
   change actually changed the price" — neither enforced by a schema
   constraint, which is the point.
+- **`http`** GETs a URL and asserts on its status code and/or a body
+  substring — stdlib `urllib`, nothing else. The response body is never
+  written whole into evidence, only its length; only what the check
+  actually asserted (did it contain X) is evidence-worthy.
+- **`filesystem`** asserts a path exists (or explicitly doesn't), and
+  optionally its type and permission bits — environment/deploy
+  verification with no cloud SDK.
+- **`receipt`** reads a receipt file written by
+  [receipt](https://github.com/MaXiMo000/receipt) and asserts its status —
+  the concrete "receipt = evidence, invariant = policy" boundary: receipt
+  produces the record of what a command touched, this check turns it into
+  a pass/fail as part of a larger set of invariants, with no reimplementing
+  of receipt's own snapshot/diff logic.
+
+Any string arg on any check can reference an environment variable —
+`dsn: ${PROD_DSN}` (whole value) or `dsn: postgresql://user:${PROD_PASSWORD}@host/db`
+(embedded) — so a credential never has to be written into `invariant.yaml`
+itself, which typically lives in the repo being checked.
 
 Four repos that individually prove "this backup works" or "this repo is
 secure" become one config file that proves all of it, with one report and one
@@ -108,6 +126,11 @@ redaction (above) is the one place this has actually mattered so far; a new
 check type that touches a credential should do the same before returning
 its evidence dict, not after.
 
+`--check NAME` (repeatable) runs only the named invariants — everything
+else in the config is skipped, not reported as unverified. `--json` prints
+the result array instead of the human report, for scripting against
+invariant's own output directly.
+
 ## Add a check type
 
 A check is a function `args: dict -> (status, detail, evidence)` where
@@ -119,8 +142,8 @@ the whole extension point — the runner, evidence writer, and CLI don't change.
 
 No plugin SDK, no YAML schema validator, no dashboard, no signing of the
 evidence bundle (a sha256 catches an edited file; a real signature is a
-separate, later problem). No `http`, `migration_diff`, or `reconcile` check
-types yet — they're the natural next ones, added the same way as the three
-above, when there's a real invariant to run them against.
+separate, later problem). No `migration_diff` or `reconcile` check types
+yet — added the same way as the six above, when there's a real invariant
+to run them against.
 
 MIT licensed.

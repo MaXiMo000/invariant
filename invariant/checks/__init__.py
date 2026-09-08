@@ -3,7 +3,7 @@
 Adding a new invariant type is adding one module here and one line below --
 not touching the runner. That's the only extension point on purpose.
 """
-from . import filesystem, http, postgres_restore, security_scan, sql
+from . import filesystem, http, postgres_restore, receipt, security_scan, sql
 
 REGISTRY = {
     "sql": sql.run,
@@ -11,4 +11,5 @@ REGISTRY = {
     "security_scan": security_scan.run,
     "http": http.run,
     "filesystem": filesystem.run,
+    "receipt": receipt.run,
 }
