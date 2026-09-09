@@ -19,7 +19,9 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
-from invariant.checks import filesystem, gdpr_erasure, http, postgres_restore, receipt, security_scan
+from invariant.checks import (
+    filesystem, gdpr_erasure, http, migration_diff, postgres_restore, receipt, security_scan, sql,
+)
 from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
 
@@ -193,6 +195,21 @@ class TestRunner(unittest.TestCase):
         # sqlite dsns are bare file paths -- nothing to redact, and the
         # redaction pass must not mangle a normal path.
         self.assertEqual(_redact_dsn("/tmp/demo.db"), "/tmp/demo.db")
+
+    def test_a_bad_sqlite_query_is_unverified_not_a_crash(self):
+        """Found while building migration_diff: sql.run()'s own
+        _query_sqlite() had no except clause at all -- unlike its postgres
+        sibling, which already catches its driver's exceptions. It never
+        took the whole tool down (this runner-level test would have passed
+        either way, since run_all's own try/except papers over it), but
+        sql.run() called directly -- exactly what migration_diff.py does
+        -- raised instead of returning the (status, detail, evidence)
+        tuple its own contract promises."""
+        status, detail, _ = sql.run({
+            "dsn": self.db_path, "query": "SELECT * FROM no_such_table", "must_equal": 0,
+        })
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("no_such_table", detail)
 
     def test_postgres_dsn_with_no_password_is_left_alone(self):
         self.assertEqual(
@@ -574,6 +591,128 @@ class TestGdprErasure(unittest.TestCase):
         }]
         results = runner.run_all(invariants)
         self.assertEqual(results[0].status, FAIL)  # subject 42 still has data in setUp's fixture
+
+
+class TestMigrationDiff(unittest.TestCase):
+    """Two real, separate sqlite files -- source and destination -- the
+    same way a real migration has two actually-different stores, not one
+    database queried twice."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.source_db = str(pathlib.Path(self.tmp.name) / "old.db")
+        self.dest_db = str(pathlib.Path(self.tmp.name) / "new.db")
+
+        conn = sqlite3.connect(self.source_db)
+        conn.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, amount REAL)")
+        conn.execute("INSERT INTO orders VALUES (1, 100.0), (2, 250.5)")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(self.dest_db)
+        conn.execute("CREATE TABLE orders_v2 (id INTEGER PRIMARY KEY, amount REAL)")
+        conn.execute("INSERT INTO orders_v2 VALUES (1, 100.0), (2, 250.5)")
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _args(self, source_query, dest_query, **extra):
+        return {
+            "source": {"dsn": self.source_db, "query": source_query},
+            "destination": {"dsn": self.dest_db, "query": dest_query},
+            **extra,
+        }
+
+    def test_matching_row_counts_across_two_real_databases_is_pass(self):
+        status, detail, evidence = migration_diff.run(self._args(
+            "SELECT COUNT(*) FROM orders", "SELECT COUNT(*) FROM orders_v2"))
+        self.assertEqual(status, PASS)
+        self.assertEqual(evidence["source_value"], 2)
+        self.assertEqual(evidence["destination_value"], 2)
+
+    def test_matching_sum_across_two_real_databases_is_pass(self):
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT SUM(amount) FROM orders", "SELECT SUM(amount) FROM orders_v2"))
+        self.assertEqual(status, PASS)
+
+    def test_a_lost_row_during_migration_is_a_fail(self):
+        conn = sqlite3.connect(self.dest_db)
+        conn.execute("DELETE FROM orders_v2 WHERE id = 2")
+        conn.commit()
+        conn.close()
+
+        status, detail, evidence = migration_diff.run(self._args(
+            "SELECT COUNT(*) FROM orders", "SELECT COUNT(*) FROM orders_v2"))
+        self.assertEqual(status, FAIL)
+        self.assertIn("source=2", detail)
+        self.assertIn("destination=1", detail)
+
+    def test_small_rounding_difference_within_tolerance_is_pass(self):
+        conn = sqlite3.connect(self.dest_db)
+        conn.execute("UPDATE orders_v2 SET amount = 250.51 WHERE id = 2")  # 0.01 off, a unit-conversion rounding
+        conn.commit()
+        conn.close()
+
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT SUM(amount) FROM orders", "SELECT SUM(amount) FROM orders_v2", tolerance=0.02))
+        self.assertEqual(status, PASS)
+        self.assertIn("tolerance", detail)
+
+    def test_difference_beyond_tolerance_is_still_a_fail(self):
+        conn = sqlite3.connect(self.dest_db)
+        conn.execute("UPDATE orders_v2 SET amount = 999.0 WHERE id = 2")
+        conn.commit()
+        conn.close()
+
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT SUM(amount) FROM orders", "SELECT SUM(amount) FROM orders_v2", tolerance=0.02))
+        self.assertEqual(status, FAIL)
+
+    def test_both_sides_returning_no_row_agree_and_pass(self):
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT amount FROM orders WHERE id = 999",
+            "SELECT amount FROM orders_v2 WHERE id = 999"))
+        self.assertEqual(status, PASS)
+        self.assertIn("no row", detail)
+
+    def test_one_side_returning_no_row_is_a_fail_not_a_crash(self):
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT COUNT(*) FROM orders WHERE id = 999",  # returns 0, a real row
+            "SELECT amount FROM orders_v2 WHERE id = 999"))  # returns no row at all
+        # COUNT(*) always returns a row (0), so this compares 0 to None --
+        # a real mismatch, not the "both empty" agreement case above.
+        self.assertEqual(status, FAIL)
+
+    def test_bad_source_query_is_unverified_not_a_crash(self):
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT * FROM no_such_table", "SELECT COUNT(*) FROM orders_v2"))
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("source:", detail)
+
+    def test_bad_destination_query_is_unverified_not_a_crash(self):
+        status, detail, _ = migration_diff.run(self._args(
+            "SELECT COUNT(*) FROM orders", "SELECT * FROM no_such_table"))
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("destination:", detail)
+
+    def test_source_dsn_password_is_redacted_in_evidence(self):
+        status, detail, evidence = migration_diff.run({
+            "source": {"dsn": "postgres://user:secret@host/db", "query": "SELECT 1"},
+            "destination": {"dsn": self.dest_db, "query": "SELECT COUNT(*) FROM orders_v2"},
+        })
+        self.assertEqual(status, UNVERIFIED)  # psycopg isn't installed in this test env
+        self.assertNotIn("secret", evidence.get("source_dsn", ""))
+
+    def test_wired_into_the_registry_and_reachable_through_the_runner(self):
+        invariants = [{
+            "name": "orders_survived_migration",
+            "check": "migration_diff",
+            "args": self._args("SELECT COUNT(*) FROM orders", "SELECT COUNT(*) FROM orders_v2"),
+        }]
+        results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, PASS)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,17 @@ def _query_sqlite(dsn: str, query: str):
     conn = sqlite3.connect(dsn)
     try:
         row = conn.execute(query).fetchone()
+    except sqlite3.Error as exc:
+        # A bad query (typo'd table/column name, syntax error) used to
+        # propagate straight out of here uncaught -- the postgres path
+        # below already catches its own driver's exceptions the same way.
+        # invariant's own runner happens to catch this one level up, so it
+        # never took the whole tool down, but a check module calling
+        # _query_sqlite() directly (migration_diff does) got a real crash
+        # instead of the (status, detail, evidence) tuple its own contract
+        # promises -- found by testing this exact case, not assumed fine
+        # because the runner's own catch-all papered over it.
+        return None, str(exc)
     finally:
         conn.close()
     return (row[0] if row else None), None

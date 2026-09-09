@@ -29,6 +29,21 @@ invariants:
         - table: orders
           column: customer_id
 
+  # migration_diff compares two LIVE queries to each other, not a query to
+  # a number written down once -- source and destination can be different
+  # dsns entirely (a real migration), but don't have to be: this demo
+  # checks two different tables in the same db, e.g. "did every order get
+  # a payment" during a denormalization step.
+  - name: order_and_payment_counts_agree
+    check: migration_diff
+    args:
+      source:
+        dsn: examples/demo.db
+        query: "SELECT COUNT(*) FROM orders"
+      destination:
+        dsn: examples/demo.db
+        query: "SELECT COUNT(*) FROM payments"
+
   # Needs Docker + `pip install firedrill`. Build a real one with
   # `python examples/make_demo_dump.py`, then uncomment:
   # - name: latest_backup_restores

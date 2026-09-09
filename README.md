@@ -99,6 +99,15 @@ scanning; it wraps tools that already do those honestly:
   interpolated. This is infrastructure for verifying *your own* store
   after *your own* erasure implementation runs; it has no notion of, and
   makes no claim about, any specific company's actual compliance.
+- **`migration_diff`** checks whether a value survived a data migration —
+  a `source` `{dsn, query}` and a `destination` `{dsn, query}`, queried
+  live, both sides, right now (not "does a query equal a number someone
+  wrote down during the migration"). Source and destination can be
+  completely different stores — a legacy schema and its replacement, or
+  two different database engines entirely. An optional `tolerance` allows
+  a small numeric difference (a currency/unit-conversion rounding), still
+  exact-match by default. Row counts and business-invariant sums (`SELECT
+  SUM(amount) FROM ...` on each side) are the two obvious uses.
 
 Any string arg on any check can reference an environment variable —
 `dsn: ${PROD_DSN}` (whole value) or `dsn: postgresql://user:${PROD_PASSWORD}@host/db`
@@ -153,8 +162,7 @@ the whole extension point — the runner, evidence writer, and CLI don't change.
 
 No plugin SDK, no YAML schema validator, no dashboard, no signing of the
 evidence bundle (a sha256 catches an edited file; a real signature is a
-separate, later problem). No `migration_diff` or `reconcile` check types
-yet — added the same way as the six above, when there's a real invariant
-to run them against.
+separate, later problem). No `reconcile` check type yet — added the same
+way as the eight above, when there's a real invariant to run it against.
 
 MIT licensed.
