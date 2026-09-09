@@ -15,6 +15,20 @@ invariants:
       query: "SELECT COUNT(*) FROM orders WHERE customer_id NOT IN (SELECT id FROM customers)"
       must_equal: 0
 
+  # Customer 999 never existed in this demo db (see orphan_orders_are_zero,
+  # above) -- one pass/fail across both tables instead of two separate sql
+  # checks a human has to mentally combine to know an erasure is complete.
+  - name: customer_999_fully_erased
+    check: gdpr_erasure
+    args:
+      dsn: examples/demo.db
+      subject_id: 999
+      stores:
+        - table: customers
+          column: id
+        - table: orders
+          column: customer_id
+
   # Needs Docker + `pip install firedrill`. Build a real one with
   # `python examples/make_demo_dump.py`, then uncomment:
   # - name: latest_backup_restores

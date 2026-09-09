@@ -19,7 +19,7 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
-from invariant.checks import filesystem, http, postgres_restore, receipt, security_scan
+from invariant.checks import filesystem, gdpr_erasure, http, postgres_restore, receipt, security_scan
 from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
 
@@ -458,6 +458,122 @@ class TestReceiptCheck(unittest.TestCase):
         status, detail, _ = receipt.run({"path": str(p)})
         self.assertEqual(status, UNVERIFIED)
         self.assertIn("doesn't look like a receipt", detail)
+
+
+class TestGdprErasure(unittest.TestCase):
+    """Real sqlite, real tables, same discipline as TestRunner's _make_db --
+    this exercises actual SQL execution, not a mocked cursor."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = str(pathlib.Path(self.tmp.name) / "app.db")
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER)")
+        conn.execute("CREATE TABLE activity_log (id INTEGER PRIMARY KEY, user_id INTEGER)")
+        # Subject 42: fully present, to be "erased" (or not) per test.
+        conn.execute("INSERT INTO orders VALUES (1, 42)")
+        conn.execute("INSERT INTO activity_log VALUES (1, 42)")
+        # A different subject, always present -- proves the query is scoped
+        # to the right subject, not just "is this table empty."
+        conn.execute("INSERT INTO orders VALUES (2, 99)")
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _stores(self):
+        return [
+            {"table": "orders", "column": "customer_id"},
+            {"table": "activity_log", "column": "user_id"},
+        ]
+
+    def test_residual_data_in_any_store_is_a_fail(self):
+        status, detail, evidence = gdpr_erasure.run({
+            "dsn": self.db_path, "subject_id": 42, "stores": self._stores(),
+        })
+        self.assertEqual(status, FAIL)
+        self.assertIn("orders.customer_id", detail)
+        self.assertIn("activity_log.user_id", detail)
+
+    def test_fully_erased_subject_is_a_pass(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM orders WHERE customer_id = 42")
+        conn.execute("DELETE FROM activity_log WHERE user_id = 42")
+        conn.commit()
+        conn.close()
+
+        status, detail, evidence = gdpr_erasure.run({
+            "dsn": self.db_path, "subject_id": 42, "stores": self._stores(),
+        })
+        self.assertEqual(status, PASS)
+        # The other subject's row must still exist -- this isn't proving
+        # the pass by having deleted everyone.
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders WHERE customer_id = 99").fetchone()[0], 1)
+        conn.close()
+
+    def test_partial_erasure_names_exactly_which_store_still_has_data(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM orders WHERE customer_id = 42")  # only this one cleaned
+        conn.commit()
+        conn.close()
+
+        status, detail, evidence = gdpr_erasure.run({
+            "dsn": self.db_path, "subject_id": 42, "stores": self._stores(),
+        })
+        self.assertEqual(status, FAIL)
+        self.assertIn("activity_log.user_id", detail)
+        self.assertNotIn("orders.customer_id", detail)
+
+    def test_no_stores_declared_is_unverified_not_a_silent_pass(self):
+        status, detail, _ = gdpr_erasure.run({"dsn": self.db_path, "subject_id": 42, "stores": []})
+        self.assertEqual(status, UNVERIFIED)
+
+    def test_nonexistent_table_is_unverified_not_a_crash(self):
+        status, detail, _ = gdpr_erasure.run({
+            "dsn": self.db_path, "subject_id": 42,
+            "stores": [{"table": "no_such_table", "column": "id"}],
+        })
+        self.assertEqual(status, UNVERIFIED)
+
+    def test_an_identifier_that_is_not_a_plain_name_is_refused(self):
+        """The one real security property here: table/column can't be
+        parameterized by the DB driver (only values can), so a config
+        value that isn't a plain identifier must be rejected outright
+        rather than interpolated into a query string."""
+        status, detail, _ = gdpr_erasure.run({
+            "dsn": self.db_path, "subject_id": 42,
+            "stores": [{"table": "orders; DROP TABLE users", "column": "customer_id"}],
+        })
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("not a plain identifier", detail)
+        # Confirm nothing was actually executed against the DB.
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 0)
+        conn.close()
+
+    def test_postgres_dsn_is_routed_correctly_and_redacted_in_evidence(self):
+        """psycopg genuinely isn't installed in this test environment --
+        real degrade-gracefully behavior, not mocked, same as
+        TestSql would exercise for the sibling check."""
+        status, detail, evidence = gdpr_erasure.run({
+            "dsn": "postgres://user:pass@host/db", "subject_id": 42,
+            "stores": [{"table": "orders", "column": "customer_id"}],
+        })
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("psycopg is not installed", detail)
+        self.assertNotIn("pass", evidence["dsn"])  # the password must never reach evidence
+
+    def test_wired_into_the_registry_and_reachable_through_the_runner(self):
+        invariants = [{
+            "name": "subject_42_erased",
+            "check": "gdpr_erasure",
+            "args": {"dsn": self.db_path, "subject_id": 42, "stores": self._stores()},
+        }]
+        results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, FAIL)  # subject 42 still has data in setUp's fixture
 
 
 if __name__ == "__main__":

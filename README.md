@@ -88,6 +88,17 @@ scanning; it wraps tools that already do those honestly:
   produces the record of what a command touched, this check turns it into
   a pass/fail as part of a larger set of invariants, with no reimplementing
   of receipt's own snapshot/diff logic.
+- **`gdpr_erasure`** verifies a "right to be forgotten" request actually
+  finished — given a subject id and a list of `{table, column}` stores
+  their data could live in, asserts zero remaining rows in *all* of them
+  as one pass/fail, instead of N separate `sql` checks a human has to
+  mentally combine to know whether the erasure is actually complete. Table
+  and column names are validated as plain identifiers before being built
+  into a query (SQL can't parameterize an identifier the way it can a
+  value) — a config value that isn't one is refused outright, not
+  interpolated. This is infrastructure for verifying *your own* store
+  after *your own* erasure implementation runs; it has no notion of, and
+  makes no claim about, any specific company's actual compliance.
 
 Any string arg on any check can reference an environment variable —
 `dsn: ${PROD_DSN}` (whole value) or `dsn: postgresql://user:${PROD_PASSWORD}@host/db`
