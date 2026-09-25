@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import sqlite3
 import subprocess
@@ -406,6 +407,7 @@ class TestFilesystem(unittest.TestCase):
         self.assertEqual(status, FAIL)
         self.assertIn("dir", detail)
 
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
     def test_mode_check_as_octal_int(self):
         p = pathlib.Path(self.tmp.name) / "script.sh"
         p.write_text("#!/bin/sh")
@@ -413,6 +415,15 @@ class TestFilesystem(unittest.TestCase):
         status, detail, _ = filesystem.run({"path": str(p), "mode": 0o755})
         self.assertEqual(status, PASS)
 
+    @unittest.skipIf(os.name != "nt", "Windows-only behavior")
+    def test_mode_check_is_unverified_on_windows_not_a_guess(self):
+        p = pathlib.Path(self.tmp.name) / "secret.env"
+        p.write_text("SECRET=x")
+        status, detail, _ = filesystem.run({"path": str(p), "mode": "600"})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("can't be checked on Windows", detail)
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
     def test_mode_check_as_octal_string_fails_on_mismatch(self):
         p = pathlib.Path(self.tmp.name) / "secret.env"
         p.write_text("SECRET=x")
@@ -572,15 +583,17 @@ class TestGdprErasure(unittest.TestCase):
         conn.close()
 
     def test_postgres_dsn_is_routed_correctly_and_redacted_in_evidence(self):
-        """psycopg genuinely isn't installed in this test environment --
-        real degrade-gracefully behavior, not mocked, same as
-        TestSql would exercise for the sibling check."""
+        """Real degrade-gracefully behavior, not mocked: without psycopg this
+        reports that; with it, the connect to the unresolvable host fails.
+        Either way the dsn went down the postgres path, came back
+        unverified, and its password never reached evidence."""
         status, detail, evidence = gdpr_erasure.run({
             "dsn": "postgres://user:pass@host/db", "subject_id": 42,
             "stores": [{"table": "orders", "column": "customer_id"}],
         })
         self.assertEqual(status, UNVERIFIED)
-        self.assertIn("psycopg is not installed", detail)
+        self.assertTrue("psycopg is not installed" in detail or "could not query postgres" in detail,
+                        detail)
         self.assertNotIn("pass", evidence["dsn"])  # the password must never reach evidence
 
     def test_wired_into_the_registry_and_reachable_through_the_runner(self):

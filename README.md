@@ -81,7 +81,8 @@ scanning; it wraps tools that already do those honestly:
   actually asserted (did it contain X) is evidence-worthy.
 - **`filesystem`** asserts a path exists (or explicitly doesn't), and
   optionally its type and permission bits — environment/deploy
-  verification with no cloud SDK.
+  verification with no cloud SDK. On Windows a `mode:` assertion reads
+  `unverified`: Windows has no POSIX permission bits to compare.
 - **`receipt`** reads a receipt file written by
   [receipt](https://github.com/MaXiMo000/receipt) and asserts its status —
   the concrete "receipt = evidence, invariant = policy" boundary: receipt
