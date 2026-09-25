@@ -21,7 +21,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from invariant import runner
 from invariant.checks import (
-    filesystem, gdpr_erasure, http, migration_diff, postgres_restore, receipt, security_scan, sql,
+    export_contains, filesystem, gdpr_erasure, http, migration_diff, postgres_restore, receipt,
+    security_scan, sql,
 )
 from invariant.checks.sql import _redact_dsn
 from invariant.model import FAIL, PASS, UNVERIFIED
@@ -446,9 +447,12 @@ class TestReceiptCheck(unittest.TestCase):
 
     def _write_real_receipt(self, status: str, detail: str = "detail") -> str:
         try:
-            from receipt.evidence import write as write_receipt
+            from receipt_evidence.evidence import write as write_receipt  # receipt-evidence >= 0.2
         except ImportError:
-            self.skipTest("receipt is not installed -- pip install -e ../receipt to run this test")
+            try:
+                from receipt.evidence import write as write_receipt  # receipt-evidence 0.1.x
+            except ImportError:
+                self.skipTest("receipt-evidence is not installed -- pip install receipt-evidence")
         result = {
             "task": "test", "command": ["echo"], "watch_dir": ".", "exit_code": 0,
             "seconds": 0.1, "stdout": "", "stderr": "", "declared_paths": [],
@@ -725,6 +729,102 @@ class TestMigrationDiff(unittest.TestCase):
             "args": self._args("SELECT COUNT(*) FROM orders", "SELECT COUNT(*) FROM orders_v2"),
         }]
         results = runner.run_all(invariants)
+        self.assertEqual(results[0].status, PASS)
+
+
+class TestExportContains(unittest.TestCase):
+    """Ported from the standalone portable-evidence tool this replaces."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _json_export(self, doc) -> str:
+        p = self.root / "export.json"
+        p.write_text(json.dumps(doc), encoding="utf-8")
+        return str(p)
+
+    def _dir_export(self) -> pathlib.Path:
+        d = self.root / "takeout"
+        (d / "photos").mkdir(parents=True)
+        (d / "photos" / "a.jpg").write_bytes(b"\xff\xd8jpeg")
+        (d / "Orders.csv").write_text("order_id,total\n1001,9.99\n1002,5.00\n", encoding="utf-8")
+        return d
+
+    def test_every_json_category_present_is_pass(self):
+        export = self._json_export({"user": {"email": "a@b.c"}, "orders": [{"id": 1}, {"id": 2}]})
+        status, detail, evidence = export_contains.run({"export": export, "categories": [
+            {"name": "profile", "json_path": "user.email"},
+            {"name": "orders", "json_path": "orders", "min_count": 2},
+            {"name": "first_order", "json_path": "orders[0].id"},
+        ]})
+        self.assertEqual(status, PASS, detail)
+        self.assertEqual([c["status"] for c in evidence["categories"]], ["found"] * 3)
+
+    def test_present_but_empty_counts_as_missing(self):
+        export = self._json_export({"user": {"email": ""}, "orders": []})
+        status, detail, _ = export_contains.run({"export": export, "categories": [
+            {"name": "profile", "json_path": "user.email"},
+            {"name": "orders", "json_path": "orders", "min_count": 1},
+        ]})
+        self.assertEqual(status, FAIL)
+        self.assertIn("profile", detail)
+        self.assertIn("orders", detail)
+
+    def test_directory_export_with_files_and_csv_column(self):
+        status, detail, _ = export_contains.run({"export": str(self._dir_export()), "categories": [
+            {"name": "photos", "file_glob": "photos/*.jpg"},
+            {"name": "orders", "file_glob": "*.csv", "csv_column": "order_id", "min_count": 2},
+        ]})
+        self.assertEqual(status, PASS, detail)
+
+    def test_header_only_csv_is_missing(self):
+        d = self._dir_export()
+        (d / "Orders.csv").write_text("order_id,total\n", encoding="utf-8")
+        status, _, _ = export_contains.run({"export": str(d), "categories": [
+            {"name": "orders", "file_glob": "*.csv", "csv_column": "order_id"}]})
+        self.assertEqual(status, FAIL)
+
+    def test_zip_export_is_checked_like_a_directory(self):
+        import zipfile
+        d = self._dir_export()
+        z = self.root / "takeout.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            for f in d.rglob("*"):
+                if f.is_file():
+                    zf.write(f, f.relative_to(d).as_posix())
+        status, detail, _ = export_contains.run({"export": str(z), "categories": [
+            {"name": "photos", "file_glob": "photos/*.jpg"}]})
+        self.assertEqual(status, PASS, detail)
+
+    def test_zip_over_the_size_cap_is_unverified_not_extracted(self):
+        import zipfile
+        z = self.root / "bomb.zip"
+        with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("big.bin", b"\0" * (2 * 1024 * 1024))
+        with mock.patch.object(export_contains, "MAX_UNZIPPED_BYTES", 1024 * 1024):
+            status, detail, _ = export_contains.run({"export": str(z), "categories": [
+                {"name": "x", "file_glob": "*"}]})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("cap", detail)
+
+    def test_wrong_export_shape_for_a_category_is_unverified_not_fail(self):
+        export = self._json_export({"user": {"email": "a@b.c"}})
+        status, detail, _ = export_contains.run({"export": export, "categories": [
+            {"name": "profile", "json_path": "user.email"},
+            {"name": "photos", "file_glob": "photos/*"},
+        ]})
+        self.assertEqual(status, UNVERIFIED)
+        self.assertIn("photos", detail)
+
+    def test_reachable_through_the_runner(self):
+        export = self._json_export({"user": {"email": "a@b.c"}})
+        results = runner.run_all([{"name": "export_has_profile", "check": "export_contains",
+                                   "args": {"export": export, "categories": [
+                                       {"name": "profile", "json_path": "user.email"}]}}])
         self.assertEqual(results[0].status, PASS)
 
 

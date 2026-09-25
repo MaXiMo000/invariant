@@ -4,8 +4,8 @@ Adding a new invariant type is adding one module here and one line below --
 not touching the runner. That's the only extension point on purpose.
 """
 from . import (
-    filesystem, gdpr_erasure, http, migration_diff, postgres_restore, receipt,
-    security_scan, sql,
+    export_contains, filesystem, gdpr_erasure, http, migration_diff, postgres_restore,
+    receipt, security_scan, sql,
 )
 
 REGISTRY = {
@@ -17,4 +17,5 @@ REGISTRY = {
     "receipt": receipt.run,
     "gdpr_erasure": gdpr_erasure.run,
     "migration_diff": migration_diff.run,
+    "export_contains": export_contains.run,
 }

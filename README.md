@@ -109,6 +109,23 @@ scanning; it wraps tools that already do those honestly:
   a small numeric difference (a currency/unit-conversion rounding), still
   exact-match by default. Row counts and business-invariant sums (`SELECT
   SUM(amount) FROM ...` on each side) are the two obvious uses.
+- **`export_contains`** checks a data export actually contains every
+  category it promises (formerly the standalone `portable-evidence`). Point
+  it at a JSON file, a directory, or a `.zip` (Google-Takeout style), and
+  declare each category as a `json_path` (`user.email`, `orders[0].id`,
+  optional `min_count`) or a `file_glob` (optionally with a `csv_column`
+  that must hold real values). Present-but-empty counts as missing: the
+  point is proving real data landed. Zip extraction is capped at 2 GiB.
+
+  ```yaml
+  - name: export_has_everything_the_policy_promises
+    check: export_contains
+    args:
+      export: exports/latest.zip
+      categories:
+        - {name: photos, file_glob: "Photos/*.jpg"}
+        - {name: orders, file_glob: "Orders/*.csv", csv_column: order_id}
+  ```
 
 Any string arg on any check can reference an environment variable —
 `dsn: ${PROD_DSN}` (whole value) or `dsn: postgresql://user:${PROD_PASSWORD}@host/db`
