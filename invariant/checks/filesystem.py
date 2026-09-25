@@ -12,6 +12,7 @@ Args:
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import stat
 
@@ -54,11 +55,17 @@ def run(args: dict) -> tuple[str, str, dict]:
     problems = []
     if expect_type is not None and actual_type != expect_type:
         problems.append(f"type {actual_type!r}, expected {expect_type!r}")
-    if expect_mode is not None:
+    if expect_mode is not None and os.name != "nt":
         expected_mode = _parse_mode(expect_mode)
         if actual_mode != expected_mode:
             problems.append(f"mode {oct(actual_mode)}, expected {oct(expected_mode)}")
 
     if problems:
         return FAIL, "; ".join(problems), evidence
+    if expect_mode is not None and os.name == "nt":
+        # Windows has no POSIX permission bits: stat() reports 0o666 or
+        # 0o444 whatever the ACLs say, so comparing would be a made-up
+        # pass or fail. A check that can't run here is unverified.
+        return UNVERIFIED, (f"{path} exists, but its permission bits can't be checked "
+                            f"on Windows (expected {oct(_parse_mode(expect_mode))})"), evidence
     return PASS, f"{path} exists" + (f" ({actual_type}, {oct(actual_mode)})" if expect_type or expect_mode else ""), evidence
