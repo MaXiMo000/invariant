@@ -1,0 +1,140 @@
+# Marketplace display name. The package is `pip install invariant-verify`;
+# the action is `MaXiMo000/invariant@v0`.
+name: invariant checks
+description: Declare what must stay true about your systems, check it in CI, and keep a proof bundle of every run.
+author: MaXiMo000
+
+branding:
+  icon: check-square
+  color: green
+
+inputs:
+  config:
+    description: Path to invariant.yaml.
+    required: false
+    default: invariant.yaml
+  checks:
+    description: Comma-separated check names to run (default all).
+    required: false
+    default: ""
+  evidence:
+    description: Directory for the proof bundle. Empty to skip writing one.
+    required: false
+    default: invariant-proof
+  upload-evidence:
+    description: Upload the proof bundle as a workflow artifact.
+    required: false
+    default: "true"
+  extras:
+    description: Optional extras to install, e.g. "postgres" for postgres:// DSNs.
+    required: false
+    default: ""
+  version:
+    description: Version of invariant-verify to install (a PyPI version). Default latest.
+    required: false
+    default: ""
+  install-from:
+    description: >-
+      Install from this path instead of PyPI -- so this action can be tested
+      against its own checkout.
+    required: false
+    default: ""
+
+outputs:
+  ok:
+    description: '"true" only when every check passed. An unverified check is not a pass.'
+    value: ${{ steps.run.outputs.ok }}
+  passed:
+    description: Number of checks that passed.
+    value: ${{ steps.run.outputs.passed }}
+  failed:
+    description: Number of checks that failed.
+    value: ${{ steps.run.outputs.failed }}
+  unverified:
+    description: Number of checks that could not run.
+    value: ${{ steps.run.outputs.unverified }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install invariant
+      shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+        VERSION: ${{ inputs.version }}
+        FROM: ${{ inputs.install-from }}
+      run: |
+        set -euo pipefail
+        spec="${FROM:-invariant-verify}"
+        [ -n "$EXTRAS" ] && spec="$spec[$EXTRAS]"
+        [ -z "$FROM" ] && [ -n "$VERSION" ] && spec="$spec==$VERSION"
+        python3 -m pip install --disable-pip-version-check --quiet "$spec"
+
+    - name: Run the checks
+      id: run
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        CHECKS: ${{ inputs.checks }}
+        EVIDENCE: ${{ inputs.evidence }}
+      # `|| true`: a failing check is the expected outcome this action exists
+      # to report; the outputs and summary are published before the build is
+      # failed in the last step.
+      run: |
+        set -uo pipefail
+        args=(run "$CONFIG" --json)
+        [ -n "$EVIDENCE" ] && args+=(--evidence "$EVIDENCE")
+        IFS=',' read -ra names <<< "$CHECKS"
+        for n in "${names[@]}"; do n="$(echo "$n" | xargs)"; [ -n "$n" ] && args+=(--check "$n"); done
+        invariant "${args[@]}" > invariant-results.json || true
+        python3 - invariant-results.json >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        try:
+            results = json.load(open(sys.argv[1]))
+        except (OSError, ValueError):
+            results = None
+        if not isinstance(results, list):
+            print("ok=false\npassed=0\nfailed=0\nunverified=0")
+            sys.exit()
+        count = lambda s: sum(1 for r in results if r["status"] == s)
+        ok = bool(results) and count("pass") == len(results)
+        print(f"ok={str(ok).lower()}")
+        print(f"passed={count('pass')}\nfailed={count('fail')}\nunverified={count('unverified')}")
+        PY
+
+    - name: Job summary
+      shell: bash
+      if: always()
+      run: |
+        python3 - invariant-results.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
+        import json, sys
+        print("### invariant\n")
+        try:
+            results = json.load(open(sys.argv[1]))
+        except (OSError, ValueError):
+            print("invariant did not produce results -- see the step log.")
+            sys.exit()
+        icon = {"pass": "✅", "fail": "❌", "unverified": "⚠️"}
+        print("| | check | detail |\n|---|---|---|")
+        for r in results:
+            detail = str(r["detail"]).replace("|", "\\|").replace("\n", " ")
+            print(f"| {icon.get(r['status'], '?')} {r['status']} | `{r['name']}` | {detail} |")
+        PY
+
+    - name: Upload the proof bundle
+      if: always() && inputs.evidence != '' && inputs.upload-evidence == 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      with:
+        name: invariant-proof
+        path: ${{ inputs.evidence }}
+        if-no-files-found: warn
+
+    - name: Fail the build unless every check passed
+      shell: bash
+      # Unverified fails too: a check nobody could run is not one you get to
+      # call satisfied.
+      run: |
+        if [ "${{ steps.run.outputs.ok }}" != "true" ]; then
+          echo "::error::invariant: ${{ steps.run.outputs.failed }} failed, ${{ steps.run.outputs.unverified }} unverified"
+          exit 1
+        fi

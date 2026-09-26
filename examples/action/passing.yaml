@@ -1,0 +1,8 @@
+# Used by CI to exercise action.yml end to end: every check here passes.
+invariants:
+  - name: readme_exists
+    check: filesystem
+    args: {path: README.md, type: file}
+  - name: no_stray_env_file
+    check: filesystem
+    args: {path: .env, must_exist: false}
