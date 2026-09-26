@@ -169,6 +169,39 @@ else in the config is skipped, not reported as unverified. `--json` prints
 the result array instead of the human report, for scripting against
 invariant's own output directly.
 
+## In GitHub Actions
+
+```yaml
+permissions:
+  contents: read
+
+jobs:
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: MaXiMo000/invariant@v0.2.1
+        with:
+          config: invariant.yaml
+          extras: postgres        # only if a check uses a postgres:// dsn
+        env:
+          PROD_DSN: ${{ secrets.PROD_DSN }}
+```
+
+Every check's result lands in the job summary as a table, the proof bundle
+is uploaded as the `invariant-proof` artifact (`upload-evidence: "false"`
+to skip), and the build fails unless every check passed -- `unverified`
+fails it too. Outputs `ok`, `passed`, `failed` and `unverified` are there
+for later steps. Run it on a `schedule:` and the invariants are checked
+against production every night, not just when someone remembers.
+
+The action runs in this repo's own CI against its own checkout -- a
+passing config and one with a failure and an unverifiable check -- and the
+outputs are asserted, so a broken action fails its own build first.
+
 ## Add a check type
 
 A check is a function `args: dict -> (status, detail, evidence)` where

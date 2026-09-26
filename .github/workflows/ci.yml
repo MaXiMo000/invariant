@@ -79,3 +79,38 @@ jobs:
           /tmp/v/bin/invariant --help > /dev/null
           test "$(/tmp/v/bin/python -c 'import invariant; print(invariant.__version__)')" \
              = "$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
+
+  action:
+    # action.yml, run for real against this checkout. An action nobody has
+    # ever run is the kind of unverified control invariant exists to catch.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: A config where everything passes
+        id: pass
+        uses: ./
+        with:
+          config: examples/action/passing.yaml
+          install-from: .
+          upload-evidence: "false"
+      - name: A config with a failure and an unverifiable check
+        id: fail
+        continue-on-error: true
+        uses: ./
+        with:
+          config: examples/action/failing.yaml
+          install-from: .
+          upload-evidence: "false"
+      - name: The outputs say what happened, and the second run failed
+        run: |
+          set -euo pipefail
+          test "${{ steps.pass.outputs.ok }}" = "true"
+          test "${{ steps.pass.outputs.passed }}" = "2"
+          test "${{ steps.fail.outputs.ok }}" = "false"
+          test "${{ steps.fail.outputs.failed }}" = "1"
+          test "${{ steps.fail.outputs.unverified }}" = "1"
+          test "${{ steps.fail.outcome }}" = "failure"
+          test -f invariant-proof/manifest.json
